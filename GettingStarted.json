@@ -1,4 +1,12 @@
 {
+
+  "Parameters" : {
+    "KeyName" : {
+      "Description" : "The EC2 Key Pair to allow SSH access to the instance",
+      "Type" : "String"
+    }
+  },
+
     "Resources" : {
         "HelloBucket" : {
             "Type" : "AWS::S3::Bucket",
@@ -9,6 +17,28 @@
             		"ErrorDocument" : "error.html"
             	}
             }
-        }
+        },
+
+    "Ec2Instance" : {
+      "Type" : "AWS::EC2::Instance",
+      "Properties" : {
+        "SecurityGroups" : [ { "Ref" : "InstanceSecurityGroup" } ],
+        "KeyName" : { "Ref" : "KeyName"},
+        "ImageId" : "ami-83e4bcea"
+      }
+    },
+
+    "InstanceSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "GroupDescription" : "Enable SSH access via port 22",
+        "SecurityGroupIngress" : [ {
+          "IpProtocol" : "tcp",
+          "FromPort" : "22",
+          "ToPort" : "22",
+          "CidrIp" : "0.0.0.0/0"
+        } ]
+      }
     }
-}
+  }
+}  
