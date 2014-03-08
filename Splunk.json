@@ -1,0 +1,238 @@
+{
+  "AWSTemplateFormatVersion" : "2010-09-09",
+
+  "Description" : "Splunk Cloud Formation",
+
+  "Parameters" : {
+
+    "KeyName": {
+      "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the instances",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "255",
+      "AllowedPattern" : "[\\x20-\\x7E]*",
+      "ConstraintDescription" : "can contain only ASCII characters."
+    },
+      "InstanceType" : {
+      "Description" : "Indexer EC2 instance type",
+      "Type" : "String",
+      "Default" : "m1.small",
+      "AllowedValues" : [ "t1.micro","m1.small","m1.medium","m1.large","m1.xlarge","m2.xlarge","m2.2xlarge","m2.4xlarge","m3.xlarge","m3.2xlarge","c1.medium","c1.xlarge","cc1.4xlarge","cc2.8xlarge","cg1.4xlarge"],
+      "ConstraintDescription" : "must be a valid EC2 instance type."
+    },
+      "StackID" : {
+      "Default": "default",
+      "Description" : "The stackID",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "64",
+      "AllowedPattern" : "[a-zA-Z][a-zA-Z0-9]*",
+      "ConstraintDescription" : "must begin with a letter and contain only alphanumeric characters."
+    }
+  },
+
+  "Mappings" : {
+    "AWSInstanceType2Arch" : {
+      "t1.micro"    : { "Arch" : "64" },
+      "m1.small"    : { "Arch" : "64" },
+      "m1.medium"   : { "Arch" : "64" },
+      "m1.large"    : { "Arch" : "64" },
+      "m1.xlarge"   : { "Arch" : "64" },
+      "m2.xlarge"   : { "Arch" : "64" },
+      "m2.2xlarge"  : { "Arch" : "64" },
+      "m2.4xlarge"  : { "Arch" : "64" },
+      "m3.xlarge"   : { "Arch" : "64" },
+      "m3.2xlarge"  : { "Arch" : "64" },
+      "c1.medium"   : { "Arch" : "64" },
+      "c1.xlarge"   : { "Arch" : "64" },
+      "cc1.4xlarge" : { "Arch" : "64HVM" },
+      "cc2.8xlarge" : { "Arch" : "64HVM" },
+      "cg1.4xlarge" : { "Arch" : "64HVM" }
+    },
+
+    "AWSRegionArch2AMI" : {
+      "us-east-1"      : { "64" : "ami-8183dbe8"  }
+    }
+  },
+
+  "Resources" : {
+    "Indexer": {
+      "Type": "AWS::EC2::Instance",
+      "Metadata" : {
+        "AWS::CloudFormation::Init" : {
+          "config" : {
+            "packages" : {
+              "yum" : {
+                "httpd"     : [],
+                "php"       : [],
+                "php-mysql" : []
+              }
+            },
+            "sources" : {
+              "/var/www/html" : "http://wordpress.org/latest.tar.gz"
+            },
+            "files" : {
+              "/opt/splunk/etc/cloud.conf" : {
+                "content" : { "Fn::Join" : ["", [
+                  "<?php\n",
+                  "define('DB_NAME',          '", {"Ref" : "StackID"}, "');\n",
+                  "define('DB_USER',          '", {"Ref" : "StackID"}, "');\n",
+                  "define('DB_PASSWORD',      '", {"Ref" : "StackID" }, "');\n",
+                  "define('DB_HOST',          '", {"Fn::GetAtt" : ["SearchHead", "PublicDnsName"]},"');\n",
+                  "define('DB_CHARSET',       'utf8');\n",
+                  "define('DB_COLLATE',       '');\n"
+                ]] },
+                "mode" : "000644",
+                "owner" : "root",
+                "group" : "root"
+              }
+            },
+            "services" : {
+              "sysvinit" : {
+                "httpd"    : { "enabled" : "true", "ensureRunning" : "true" },
+                "sendmail" : { "enabled" : "false", "ensureRunning" : "false" }
+              }
+            }
+          }
+        }
+      },
+      "Properties": {
+        "ImageId" : { "Fn::FindInMap" : [ "AWSRegionArch2AMI", { "Ref" : "AWS::Region" },
+                          { "Fn::FindInMap" : [ "AWSInstanceType2Arch", { "Ref" : "InstanceType" }, "Arch" ] } ] },
+        "InstanceType"   : { "Ref" : "InstanceType" },
+        "SecurityGroups" : [ {"Ref" : "IndexerSecurityGroup"} ],
+        "KeyName"        : { "Ref" : "KeyName" },
+        "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#!/bin/bash\n",
+          "yum update -y aws-cfn-bootstrap\n",
+
+          "/opt/aws/bin/cfn-init -s ", { "Ref" : "AWS::StackId" }, " -r Indexer ",
+          "         --region ", { "Ref" : "AWS::Region" }, "\n",
+
+          "/opt/aws/bin/cfn-signal -e $? '", { "Ref" : "WaitHandle" }, "'\n",
+
+          "# Setup correct file ownership\n",
+          "chown -R apache:apache /var/www/html/wordpress\n",
+          
+          "# Add keys and salts to the config file\n",
+          "wp_config=/var/www/html/wordpress/wp-config.php\n",
+          "GET https://api.wordpress.org/secret-key/1.1/salt/ >> $wp_config\n",
+          "echo \"define('WPLANG'            , '');\" >> $wp_config\n",
+          "echo \"define('WP_DEBUG'          , false);\" >> $wp_config\n", 
+          "echo \"\\$table_prefix  = 'wp_';\" >> $wp_config\n",
+          "echo \"if ( !defined('ABSPATH') )\" >> $wp_config\n",
+          "echo \"    define('ABSPATH', dirname(__FILE__) . '/');\" >> $wp_config\n",
+          "echo \"require_once(ABSPATH . 'wp-settings.php');\" >> $wp_config\n"
+
+        ]]}}
+      }
+    },
+
+    "WaitHandle" : {
+      "Type" : "AWS::CloudFormation::WaitConditionHandle"
+    },
+
+    "WaitCondition" : {
+      "Type" : "AWS::CloudFormation::WaitCondition",
+      "DependsOn" : "Indexer",
+      "Properties" : {
+        "Handle" : {"Ref" : "WaitHandle"},
+        "Timeout" : "600"
+      }
+    },
+
+    "SearchHead" : {
+      "Type": "AWS::EC2::Instance",
+          "Metadata" : {
+      "AWS::CloudFormation::Init" : {
+        "config" : {
+          "packages" : {
+            "yum" : {
+              "httpd"     : [],
+              "php"       : [],
+              "php-mysql" : []
+            }
+          },
+          "sources" : {
+            "/var/www/html" : "http://wordpress.org/latest.tar.gz"
+          },
+          "files" : {
+            "/opt/splunk/etc/cloud.conf" : {
+              "content" : { "Fn::Join" : ["", [
+                "<?php\n",
+                "define('DB_NAME',          '", {"Ref" : "StackID"}, "');\n",
+                "define('DB_USER',          '", {"Ref" : "StackID"}, "');\n",
+                "define('DB_PASSWORD',      '", {"Ref" : "StackID" }, "');\n",
+                "define('DB_HOST',          '", {"Ref" : "StackID" },"');\n",
+                "define('DB_CHARSET',       'utf8');\n",
+                "define('DB_COLLATE',       '');\n"
+              ]] },
+              "mode" : "000644",
+              "owner" : "root",
+              "group" : "root"
+            }
+          },
+          "services" : {
+            "sysvinit" : {
+              "httpd"    : { "enabled" : "true", "ensureRunning" : "true" },
+              "sendmail" : { "enabled" : "false", "ensureRunning" : "false" }
+            }
+          }
+        }
+      }
+    },
+      "Properties": {
+        "ImageId" : { "Fn::FindInMap" : [ "AWSRegionArch2AMI", { "Ref" : "AWS::Region" },
+                          { "Fn::FindInMap" : [ "AWSInstanceType2Arch", { "Ref" : "InstanceType" }, "Arch" ] } ] },
+        "InstanceType"   : { "Ref" : "InstanceType" },
+        "SecurityGroups" : [ {"Ref" : "SearchHeadSecurityGroup"} ],
+        "KeyName"        : { "Ref" : "KeyName" },
+        "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
+          "#!/bin/bash\n",
+          "yum update -y aws-cfn-bootstrap\n",
+
+          "/opt/aws/bin/cfn-init -s ", { "Ref" : "AWS::StackId" }, " -r SearchHead ",
+          "         --region ", { "Ref" : "AWS::Region" }, "\n",
+
+          "/opt/aws/bin/cfn-signal -e $? '", { "Ref" : "WaitHandle" }, "'\n",
+
+          "# Setup correct file ownership\n",
+          "chown -R apache:apache /var/www/html/wordpress\n",
+          
+          "# Add keys and salts to the config file\n",
+          "wp_config=/var/www/html/wordpress/wp-config.php\n",
+          "GET https://api.wordpress.org/secret-key/1.1/salt/ >> $wp_config\n",
+          "echo \"define('WPLANG'            , '');\" >> $wp_config\n",
+          "echo \"define('WP_DEBUG'          , false);\" >> $wp_config\n", 
+          "echo \"\\$table_prefix  = 'wp_';\" >> $wp_config\n",
+          "echo \"if ( !defined('ABSPATH') )\" >> $wp_config\n",
+          "echo \"    define('ABSPATH', dirname(__FILE__) . '/');\" >> $wp_config\n",
+          "echo \"require_once(ABSPATH . 'wp-settings.php');\" >> $wp_config\n"
+
+        ]]}}
+      }
+    },
+
+  "SearchHeadSecurityGroup": {
+    "Type": "AWS::EC2::SecurityGroup",
+    "Properties" : {
+      "GroupDescription" : "Enable HTTP access via port 80 and SSH access",
+      "SecurityGroupIngress" : [
+        {"IpProtocol" : "tcp", "FromPort" : "80", "ToPort" : "80", "CidrIp" : "0.0.0.0/0"},
+        {"IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "CidrIp" : "0.0.0.0/0"}
+      ]
+    }
+  },
+
+  "IndexerSecurityGroup" : {
+    "Type" : "AWS::EC2::SecurityGroup",
+    "Properties" : {
+      "GroupDescription" : "Enable HTTP access via port 80 and SSH access",
+      "SecurityGroupIngress" : [
+        {"IpProtocol" : "tcp", "FromPort" : "80", "ToPort" : "80", "CidrIp" : "0.0.0.0/0"},
+        {"IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "CidrIp" : "0.0.0.0/0"}
+      ]
+    }
+  }
+}
+}
