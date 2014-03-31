@@ -106,7 +106,15 @@
             "cfn-init --region ", { "Ref" : "AWS::Region" },
             "    -s ", { "Ref" : "AWS::StackId" }, " -r Ansible ", "|| error_exit 'Failed to run cfn-init'\n",
 
+            "add-apt-repository -y ppa:rquillo/ansible\n",
+            "apt-get update\n",
+            "apt-get -y install ansible\n",
+
             "git clone git://github.com/ansible/ansible.git\n",
+
+            "cp /usr/lib/pymodules/python2.7/ansible/module_utils/ec2.py /etc/ansible/hosts\n",
+            "cp /ansible/plugins/inventory/ec2.ini /etc/ansible\n",
+            "chmod a+x /etc/ansible/hosts\n",
 
             "cfn-signal -e $? -r 'Ansbile configuration' '", { "Ref" : "WaitHandle" }, "'\n"
         
