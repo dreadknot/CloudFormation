@@ -20,7 +20,7 @@
       "AllowedValues" : [ "t1.micro","m1.small","m1.medium","m1.large","m1.xlarge","m2.xlarge","m2.2xlarge","m2.4xlarge","m3.xlarge","m3.2xlarge","c1.medium","c1.xlarge","cc1.4xlarge","cc2.8xlarge","cg1.4xlarge"],
       "ConstraintDescription" : "must be a valid EC2 instance type."
     },
-      "StackID" : {
+      "Customer" : {
       "Default": "default",
       "Description" : "The stackID",
       "Type": "String",
@@ -62,7 +62,7 @@
         "AWS::CloudFormation::Init" : {
           "config" : {
             "packages" : {
-              "yum" : {
+              "apt" : {
                 "git"     : [],
                 "python-pip"    : [],
                 "sshpass" :     []
@@ -78,9 +78,9 @@
               "/opt/splunk/etc/cloud.conf" : {
                 "content" : { "Fn::Join" : ["", [
                   "<?php\n",
-                  "define('DB_NAME',          '", {"Ref" : "StackID"}, "');\n",
-                  "define('DB_USER',          '", {"Ref" : "StackID"}, "');\n",
-                  "define('DB_PASSWORD',      '", {"Ref" : "StackID" }, "');\n",
+                  "define('DB_NAME',          '", {"Ref" : "Customer"}, "');\n",
+                  "define('DB_USER',          '", {"Ref" : "Customer"}, "');\n",
+                  "define('DB_PASSWORD',      '", {"Ref" : "Customer" }, "');\n",
                   "define('DB_CHARSET',       'utf8');\n",
                   "define('DB_COLLATE',       '');\n"
                 ]] },
@@ -99,15 +99,16 @@
         "SecurityGroups" : [ {"Ref" : "AnsibleSecurityGroup"} ],
         "KeyName"        : { "Ref" : "KeyName" },
         "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
-          "#!/bin/bash\n",
-          "yum update -y aws-cfn-bootstrap\n",
+            "#!/bin/bash\n",
 
-          "/opt/aws/bin/cfn-init -s ", { "Ref" : "AWS::StackId" }, " -r Ansible ",
-          "         --region ", { "Ref" : "AWS::Region" }, "\n",
+            "apt-get -y install python-setuptools\n",
+            "easy_install https://s3.amazonaws.com/cloudformation-examples/aws-cfn-bootstrap-latest.tar.gz\n",
+            "cfn-init --region ", { "Ref" : "AWS::Region" },
+            "    -s ", { "Ref" : "AWS::StackId" }, " -r Ansible ", "|| error_exit 'Failed to run cfn-init'\n",
 
-          "/opt/aws/bin/cfn-signal -e $? '", { "Ref" : "WaitHandle" }, "'\n",
+            "git clone git://github.com/ansible/ansible.git\n",
 
-          "git clone git://github.com/ansible/ansible.git\n"
+            "cfn-signal -e $? -r 'Ansbile configuration' '", { "Ref" : "WaitHandle" }, "'\n"
         
 
         ]]}}
@@ -123,7 +124,7 @@
       "DependsOn" : "Ansible",
       "Properties" : {
         "Handle" : {"Ref" : "WaitHandle"},
-        "Timeout" : "600"
+        "Timeout" : "1200"
       }
     },
 
