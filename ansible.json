@@ -96,6 +96,7 @@
         "ImageId" : { "Fn::FindInMap" : [ "AWSRegionArch2AMI", { "Ref" : "AWS::Region" },
                           { "Fn::FindInMap" : [ "AWSInstanceType2Arch", { "Ref" : "InstanceType" }, "Arch" ] } ] },
         "InstanceType"   : { "Ref" : "InstanceType" },
+        "IamInstanceProfile"  : "ansible",
         "SecurityGroups" : [ {"Ref" : "AnsibleSecurityGroup"} ],
         "KeyName"        : { "Ref" : "KeyName" },
         "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
@@ -115,6 +116,8 @@
             "cp /ansible/plugins/inventory/ec2.py /etc/ansible/hosts\n",
             "cp /ansible/plugins/inventory/ec2.ini /etc/ansible\n",
             "chmod a+x /etc/ansible/hosts\n",
+
+            "pip install -U boto\n",
 
             "cfn-signal -e $? -r 'Ansbile configuration' '", { "Ref" : "WaitHandle" }, "'\n"
         
